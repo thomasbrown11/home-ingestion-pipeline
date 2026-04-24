@@ -35,11 +35,11 @@ The system is split across three layers with clearly defined responsibilities:
 
 Handles:
 
-Input from download completion hooks (post-download automation tools may rename/sort files before this stage)
-Virus scanning (ClamAV)
-Media validation (ffprobe / ffmpeg)
-Metadata generation (manifest)
-Initial staging into shared boundary
+- Input from download completion hooks (post-download automation tools may rename/sort files before this stage)
+- Virus scanning (ClamAV)
+- Media validation (ffprobe / ffmpeg)
+- Metadata generation (manifest)
+- Initial staging into shared boundary
 
 This layer performs all compute-heavy and trust-sensitive validation.
 
@@ -47,9 +47,9 @@ This layer performs all compute-heavy and trust-sensitive validation.
 
 Handles:
 
-Reading validated datasets from shared ingress (/ready)
-Verifying readiness via manifest and completion markers
-Promoting datasets into export space
+- Reading validated datasets from shared ingress (/ready)
+- Verifying readiness via manifest and completion markers
+- Promoting datasets into export space
 
 This layer is intentionally minimal and acts as a controlled promotion step, not a processing engine.
 
@@ -57,9 +57,9 @@ This layer is intentionally minimal and acts as a controlled promotion step, not
 
 Handles:
 
-Pull-based ingestion from host export directory
-Final storage and optional archival lifecycle management
-Completion signaling (e.g., done markers or archive moves)
+- Pull-based ingestion from host export directory
+- Final storage and optional archival lifecycle management
+- Completion signaling (e.g., done markers or archive moves)
 
 No system pushes directly into the NAS.
 
