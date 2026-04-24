@@ -123,7 +123,7 @@ The pipeline is composed of processing stages (VM) and transfer stages (cross-sy
     - manifest (content hashes)
   - This ensures datasets remain identifiable across transformation
  
-  - **Handoff contract:**
+  **Handoff contract:**
   - The external system performs a final move into:
     ```bash
     /mnt/host/ready
