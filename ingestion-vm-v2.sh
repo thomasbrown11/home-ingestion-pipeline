@@ -24,10 +24,11 @@ echo "[$$] acquired lock"
 
 # set static environment variables (infra layer)
 
-MACHINE="$(hostname)"
+#short hostname for logging
+MACHINE="$(hostname -s)"
 
-LOG_DIR="/home/tom/logs"
-LOG_FILE="$LOG_DIR/ingestion-vm.log"
+# LOG_DIR="/home/tom/logs"
+LOG_DIR="/mnt/host/ready/logs"
 
 DOWNLOAD_DIR="/home/tom/downloads/complete"
 PROCESSING_DIR="/home/tom/processing"
@@ -170,6 +171,9 @@ BUNDLE_NAME="$1"
 # strict filepath sourch of truth
 ORIG_SRC="$2"
 BASENAME=$(basename "$ORIG_SRC")
+
+# per-job logging
+LOG_FILE="$LOG_DIR/${TRANS_ID}.log"
 
 # =========================
 # STAGE MARKERS (completion validation)

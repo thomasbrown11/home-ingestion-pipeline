@@ -201,18 +201,18 @@ This allows:
 
 ### VM View
 - /home/tom/downloads/complete/     # download completion input
-- /home/tom/processing/                        # active processing
-- /home/tom/quarantine/                        # failed datasets
-- /mnt/host/staging/                                 # intermediate workspace
-- /mnt/host/ready/                                    # boundary to host
-- /mnt/host/ready/registry/                     # manifests + state handling
-- /home/tom/logs/                                    # VM logs
+- /home/tom/processing/             # active processing
+- /home/tom/quarantine/             # failed datasets
+- /mnt/host/staging/                # intermediate workspace
+- /mnt/host/ready/                  # boundary to host
+- /mnt/host/ready/registry/         # manifests + state handling
+- /mnt/host/ready/logs/             # VM logs (readily available to hostside promtail ingestion for observability via loki vm)
 
 ### Host View (via virtiofs)
-- /mnt/vm-share/incoming/ready/         # maps from VM /mnt/host/ready
-- /mnt/vm-share/export/                          # export directory for NAS
-- /mnt/vm-share/finished/                       # optional archive/finalization
-- /var/log/                                                   # host logs
+- /mnt/vm-share/incoming/ready/     # maps from VM /mnt/host/ready
+- /mnt/vm-share/export/             # export directory for NAS
+- /mnt/vm-share/finished/           # optional archive/finalization
+- /var/log/                         # host logs (promtail agent to loki vm)
 
 Shared directories are mapped via virtiofs between VM and host.
 
