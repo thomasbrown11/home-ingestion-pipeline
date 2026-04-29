@@ -217,6 +217,9 @@
 #SAVE THIS TO /usr/local/bin/ingestion-host.sh
 
 #!/bin/bash
+
+# error logs in early stages before transID is defined will make new log files in same log directory for easy debug
+
 # exit on error
 # undefined variables = error
 # properly fail on early pipe process failure
@@ -258,6 +261,9 @@ flock 9
 # CONFIG
 # =========================
 
+# short hostname for logging
+MACHINE="$(hostname -s)"
+
 # vm side manifest location for hash correlation/ transID retrieval 
 INCOMING="/mnt/vm-share/incoming/ready"
 REGISTRY_DIR="$INCOMING/registry"
@@ -275,6 +281,18 @@ PROCESSED_DIR="$REGISTRY_DIR/processed"
 LOG_FILE="/var/log/promotion.log"
 
 mkdir -p "$EXPORT_MOVIES" "$EXPORT_SHOWS" "$EXPORT_MANIFESTS" "$PROCESSED_DIR"
+
+# =========================
+# LOGGING DEFAULT STATE
+# =========================
+
+TRANS_ID="pending"
+BUNDLE_NAME="unknown"
+SRC="$BUNDLE_PATH"
+DEST=""
+STAGE="promote"
+ACTION="init"
+STATUS="running"
 
 # =========================
 # LOG
@@ -324,26 +342,47 @@ case "$BUNDLE_PATH" in
         DEST_ROOT="$EXPORT_SHOWS"
         ;;
     *)
-        log "ignoring non-media path"
+        ACTION="ignore"
+        STATUS="skipped"
+        STAGE="promote"
+        log "non-media path ignored"
         exit 0
         ;;
 esac
-
-log "bundle identified"
 
 # =========================
 # BUILD HASH SET FROM BUNDLE
 # =========================
 
+# create empty associative array (hash map)
 declare -A BUNDLE_HASHES
 
+# safely loop over find $BUNDLE_PATH output using null delimiting (vs newline)
+# hash files only. ignore directory structure 
+# -print0 will output like file1\0file2\0file3\0
 while IFS= read -r -d '' file; do
-    h=$(sha256sum "$file" | awk '{print $1}') || fail "hash failed"
+
+    # generate hash per file and grab only hash from sha256sum output
+    # find error with journalctl -u ingestion-host-watch.service
+    h=$(sha256sum "$file" | awk '{print $1}') || {
+        ACTION="hash"
+        STATUS="error"
+        log "hash failure"
+        exit 1
+    }
+
+    # literally append something like BUNDLE_HASHES["a1b2c3"]=1.. every value is 1, but each hash exists for 
     BUNDLE_HASHES["$h"]=1
+
 done < <(find "$BUNDLE_PATH" -type f -print0)
 
+#exit without an error (just nothing to process) if empty bundle
 [[ "${#BUNDLE_HASHES[@]}" -gt 0 ]] || {
+    
     STATUS="error"
+    STAGE="promote"
+    ACTION="hash"
+
     log "empty bundle"
     exit 0
 }
@@ -352,53 +391,68 @@ done < <(find "$BUNDLE_PATH" -type f -print0)
 # MATCH MANIFEST (HASH ONLY CORRELATION)
 # =========================
 
+# manifest with matching hashes to current bundle hashes
 MATCHED_MANIFEST=""
 
+# loop all manifests in vm/host shared registry 
+# check if all hashes in current manifest are in the current bundle's hostside hashmap 
 for manifest in "$REGISTRY_DIR"/*.json; do
+
+    # if file doesn't exist then skip (glob edge case handler where "$REGISTRY_DIR"/*.json is parsed if no manifest files present)
     [[ -e "$manifest" ]] || continue
+
+    # skip if files isn't valid JSON
     jq empty "$manifest" >/dev/null 2>&1 || continue
 
+    # create HASHES array, strip new lines and extract all hashes from manifest
     mapfile -t HASHES < <(jq -r '.files[].hash' "$manifest") || continue
 
+    #assume file matches until disproven 
     match=1
+
+    # loop each hash in manifest
     for h in "${HASHES[@]}"; do
+        # if hash is NOT in the current bundle's hashmap fail and break outer loop iteration
         [[ -n "${BUNDLE_HASHES[$h]:-}" ]] || { match=0; break; }
     done
 
+    # if preceeding loop never broke test save manifest to MATCHED_MANIFEST and break
     if [[ "$match" -eq 1 ]]; then
         MATCHED_MANIFEST="$manifest"
         break
     fi
 done
 
+# if no matches log and exit
 [[ -n "$MATCHED_MANIFEST" ]] || {
+    ACTION="match"
     STATUS="unmatched"
     log "no matching manifest"
     exit 0
 }
 
 # =========================
-# EXTRACT IDENTITY (FROM MANIFEST)
+# RESOLVE IDENTITY
 # =========================
 
-JOB_ID=$(jq -r '.job_id' "$MATCHED_MANIFEST") || fail "invalid jq job_id"
+JOB_ID=$(jq -r '.job_id' "$MATCHED_MANIFEST") || fail "invalid manifest json"
 BUNDLE_NAME=$(jq -r '.name // empty' "$MATCHED_MANIFEST")
 
 [[ -n "$JOB_ID" && "$JOB_ID" != "null" ]] || fail "invalid job_id"
 
 TRANS_ID="$JOB_ID"
 SRC="$BUNDLE_PATH"
-
 DEST="$DEST_ROOT/$JOB_ID"
 
 if [[ -d "$DEST" ]]; then
+    ACTION="export"
     STATUS="exists"
     log "already exported"
     exit 0
 fi
 
 # =========================
-# EXPORT (ATOMIC MOVE)
+# EXPORT
 # =========================
 
 STAGE="export"
