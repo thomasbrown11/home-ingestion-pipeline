@@ -19,27 +19,27 @@ exit 0
 #now add a systemd service
 #save to: /etc/systemd/system/ingestion-host-watch.service
 
-# [Unit]
-# Description=Media ingestion watcher
-# After=network.target
+[Unit]
+Description=Media ingestion watcher
+After=network.target
 
-# [Service]
-# ExecStart=/usr/local/bin/ingestion-host-watch.sh
-# Restart=always
-# RestartSec=2
+[Service]
+ExecStart=/usr/local/bin/ingestion-host-watch.sh
+Restart=always
+RestartSec=2
 
-# # Explicitly run as root (optional, but clear)
-# User=root
+# Explicitly run as root (optional, but clear)
+User=root
 
-# # Optional but recommended
-# WorkingDirectory=/
+# Optional but recommended
+WorkingDirectory=/
 
-# # Better logging behavior
-# StandardOutput=journal
-# StandardError=journal
+# Better logging behavior
+StandardOutput=journal
+StandardError=journal
 
-# [Install]
-# WantedBy=multi-user.target
+[Install]
+WantedBy=multi-user.target
 
 # #################
 # #run:
