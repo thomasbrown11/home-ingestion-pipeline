@@ -90,7 +90,11 @@ exit 1
 # =========================
 
 # search $PATH for required commands, throw away output. fail gracefully if missing
-for cmd in clamdscan ffprobe ffmpeg sha256sum jq uuidgen find; do
+# for cmd in clamdscan ffprobe ffmpeg sha256sum jq uuidgen find; do
+#     command -v "$cmd" >/dev/null 2>&1 || fail "$cmd not installed"
+# done
+
+for cmd in clamdscan ffprobe ffmpeg sha256sum jq uuidgen find flock pgrep awk; do
     command -v "$cmd" >/dev/null 2>&1 || fail "$cmd not installed"
 done
 
