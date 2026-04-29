@@ -425,7 +425,7 @@ run_manifest() {
 
     for f in "${FILES[@]}"; do
         if is_core_media_file "$f"; then
-            HASH=$(sha256sum "$f" | awk '{print $1}') #expect output [HASH] [FILENAME].. strip filename
+            HASH=$(sha256sum "$f" | awk '{print $1}') || fail "hash failed for $f" #expect output [HASH] [FILENAME].. strip filename
             REL_PATH="${f#$FILE_PATH/}" #/home/tom/processing/filename.mkv.dir/filename.mkv -> filename.mkv. strip bundle root prefix only
 
             # add file entry to JSON array with format {"name": "<relative path>", "hash": "<sha256 hash>"}
@@ -440,15 +440,20 @@ run_manifest() {
     # atomic file creation to avoid partial writes
     TMP_MANIFEST="${MANIFEST_PATH}.tmp"
 
+
+    # ensure bundle name is never empty/null
+    SAFE_BUNDLE_NAME="${BUNDLE_NAME:-unknown}"
+
     # full JSON manifest to temp file
     # type is placeholder for downstream processing on host uptake
     jq -n \
         --arg job "$TRANS_ID" \
-        --arg name "$BUNDLE_NAME" \
+        --arg name "$SAFE_BUNDLE_NAME" \
         --arg src "$ORIG_SRC" \
         --argjson files "$FILES_JSON" \
         '{
             job_id: $job,
+            name: $name,
             source: $src,
             type: null,
             files: $files
