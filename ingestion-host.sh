@@ -217,14 +217,22 @@
 #SAVE THIS TO /usr/local/bin/ingestion-host.sh
 
 #!/bin/bash
+# exit on error
+# undefined variables = error
+# properly fail on early pipe process failure
 set -euo pipefail
 
 # =========================
 # INPUT (BOUNDARY)
 # =========================
 
+# grab $1 or set to ""
 BUNDLE_PATH="${1:-}"
+
+# if no argument provided > invalid invocation 
 [[ -n "$BUNDLE_PATH" ]] || { echo "usage: $0 <bundle_path>"; exit 1; }
+
+# not a directory > not a valid bundle event, ignore
 [[ -d "$BUNDLE_PATH" ]] || { echo "not a directory: $BUNDLE_PATH"; exit 0; }
 
 # =========================
@@ -250,15 +258,20 @@ flock 9
 # CONFIG
 # =========================
 
+# vm side manifest location for hash correlation/ transID retrieval 
 INCOMING="/mnt/vm-share/incoming/ready"
 REGISTRY_DIR="$INCOMING/registry"
 
+# export directory for NAS consumption 
 EXPORT_DIR="/mnt/vm-share/export"
 EXPORT_MOVIES="$EXPORT_DIR/movies"
 EXPORT_SHOWS="$EXPORT_DIR/shows"
 EXPORT_MANIFESTS="$EXPORT_DIR/manifests"
 
+# consumed manifests on completed jobs
 PROCESSED_DIR="$REGISTRY_DIR/processed"
+
+# host side pipe log 
 LOG_FILE="/var/log/promotion.log"
 
 mkdir -p "$EXPORT_MOVIES" "$EXPORT_SHOWS" "$EXPORT_MANIFESTS" "$PROCESSED_DIR"
@@ -267,15 +280,21 @@ mkdir -p "$EXPORT_MOVIES" "$EXPORT_SHOWS" "$EXPORT_MANIFESTS" "$PROCESSED_DIR"
 # LOG
 # =========================
 
+# correct logger from vm
 log() {
     local msg
     msg=$(jq -Rs . <<< "${1:-}")
 
-    printf '{"ts":"%s","job":"%s","action":"%s","status":"%s","msg":%s}\n' \
+    printf '{"ts":"%s","tx":"%s","name":"%s","machine":"%s","action":"%s","status":"%s","stage":"%s","src":"%s","dest":"%s","msg":%s}\n' \
         "$(date -Iseconds)" \
-        "${JOB_ID:-none}" \
+        "${TRANS_ID:-none}" \
+        "${BUNDLE_NAME:-none}" \
+        "$MACHINE" \
         "${ACTION:-none}" \
         "${STATUS:-none}" \
+        "${STAGE:-none}" \
+        "${SRC:-}" \
+        "${DEST:-}" \
         "$msg" >> "$LOG_FILE"
 }
 
@@ -288,8 +307,12 @@ fail() {
 }
 
 # =========================
-# DETERMINE TYPE
+# CLASSIFY BUNDLE TYPE
 # =========================
+
+STAGE="promote"
+ACTION="identify"
+STATUS="running"
 
 case "$BUNDLE_PATH" in
     "$INCOMING/movies/"*)
@@ -301,17 +324,15 @@ case "$BUNDLE_PATH" in
         DEST_ROOT="$EXPORT_SHOWS"
         ;;
     *)
-        log "ignoring non-media path: $BUNDLE_PATH"
+        log "ignoring non-media path"
         exit 0
         ;;
 esac
 
-ACTION="identify"
-STATUS="running"
-log "processing bundle"
+log "bundle identified"
 
 # =========================
-# HASH BUNDLE
+# BUILD HASH SET FROM BUNDLE
 # =========================
 
 declare -A BUNDLE_HASHES
@@ -328,30 +349,20 @@ done < <(find "$BUNDLE_PATH" -type f -print0)
 }
 
 # =========================
-# FIND MATCHING MANIFEST
+# MATCH MANIFEST (HASH ONLY CORRELATION)
 # =========================
-
-ACTION="match"
-STATUS="running"
 
 MATCHED_MANIFEST=""
 
 for manifest in "$REGISTRY_DIR"/*.json; do
     [[ -e "$manifest" ]] || continue
-
-    if ! jq empty "$manifest" >/dev/null 2>&1; then
-        log "skipping invalid JSON: $manifest"
-        continue
-    fi
+    jq empty "$manifest" >/dev/null 2>&1 || continue
 
     mapfile -t HASHES < <(jq -r '.files[].hash' "$manifest") || continue
 
     match=1
     for h in "${HASHES[@]}"; do
-        [[ -n "${BUNDLE_HASHES[$h]:-}" ]] || {
-            match=0
-            break
-        }
+        [[ -n "${BUNDLE_HASHES[$h]:-}" ]] || { match=0; break; }
     done
 
     if [[ "$match" -eq 1 ]]; then
@@ -367,25 +378,30 @@ done
 }
 
 # =========================
-# EXTRACT JOB ID
+# EXTRACT IDENTITY (FROM MANIFEST)
 # =========================
 
-JOB_ID=$(jq -r '.job_id' "$MATCHED_MANIFEST") || fail "jq failed"
+JOB_ID=$(jq -r '.job_id' "$MATCHED_MANIFEST") || fail "invalid jq job_id"
+BUNDLE_NAME=$(jq -r '.name // empty' "$MATCHED_MANIFEST")
 
 [[ -n "$JOB_ID" && "$JOB_ID" != "null" ]] || fail "invalid job_id"
 
-# idempotency check
+TRANS_ID="$JOB_ID"
+SRC="$BUNDLE_PATH"
+
 DEST="$DEST_ROOT/$JOB_ID"
+
 if [[ -d "$DEST" ]]; then
     STATUS="exists"
-    log "already promoted, skipping"
+    log "already exported"
     exit 0
 fi
 
 # =========================
-# PROMOTE
+# EXPORT (ATOMIC MOVE)
 # =========================
 
+STAGE="export"
 ACTION="move"
 STATUS="running"
 
@@ -400,9 +416,9 @@ mv "$MATCHED_MANIFEST" "$PROCESSED_DIR/${JOB_ID}.done" \
     || fail "manifest finalize failed"
 
 STATUS="success"
-log "promotion complete"
+log "export complete"
 
-exit 0 
+exit 0
 
 ### HERE IS SYSTEMD HANDLING OUTSIDE OF THE SCRIPT: ###
 

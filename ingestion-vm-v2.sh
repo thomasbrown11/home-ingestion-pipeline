@@ -444,6 +444,7 @@ run_manifest() {
     # type is placeholder for downstream processing on host uptake
     jq -n \
         --arg job "$TRANS_ID" \
+        --arg name "$BUNDLE_NAME" \
         --arg src "$ORIG_SRC" \
         --argjson files "$FILES_JSON" \
         '{
