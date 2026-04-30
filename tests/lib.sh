@@ -3,31 +3,55 @@
 BASE="/tmp/pipeline-test"
 FIXTURES="$(dirname "$0")/fixtures"
 
-DOWNLOAD_DIR="$BASE/downloads"
-PROCESSING_DIR="$BASE/processing"
-STAGING_DIR="$BASE/staging"
-REGISTRY_DIR="$BASE/registry"
+# test-controlled override environment (THIS is the key improvement)
+export LOG_DIR="$BASE/logs"
+export DOWNLOAD_DIR="$BASE/downloads"
+export PROCESSING_DIR="$BASE/processing"
+export STAGING_DIR="$BASE/staging"
+export QUARANTINE_DIR="$BASE/quarantine"
+export REGISTRY_DIR="$BASE/registry"
 
+# reset test state between tests
 setup_env() {
     rm -rf "$BASE"
-    mkdir -p "$DOWNLOAD_DIR" "$PROCESSING_DIR" "$STAGING_DIR" "$REGISTRY_DIR"
+     mkdir -p \
+        "$DOWNLOAD_DIR" \
+        "$PROCESSING_DIR" \
+        "$STAGING_DIR" \
+        "$REGISTRY_DIR" \
+        "$LOG_DIR"
 }
 
+# wrapper for vm invocation for test readability
 run_vm() {
     local name="$1"
     local path="$2"
     local id="$3"
 
-    ./ingestion-vm.sh "$name" "$path" "$id"
+    ./ingestion-vm-v3.sh "$name" "$path" "$id"
 }
 
-assert_exists() {
-    [[ -e "$1" ]] || {
-        echo "ASSERT FAIL: $1 does not exist"
-        exit 1
+# wrapper for host invocation for test readability
+run_host() {
+    local path="$1"
+
+    [[ -d "$path" ]] || {
+        echo "TEST ERROR: not a bundle directory: $path"
+        return 1
     }
+
+    ./ingestion-host.sh "$path"
 }
 
+# assert file existence for test validation
+assert_exists() {
+    if [[ ! -e "$1" ]]; then
+        echo "FAIL: expected file missing: $1"
+        exit 1
+    fi
+}
+
+# simple test pass wrapper for readability
 pass() {
     echo "PASS: $1"
 }

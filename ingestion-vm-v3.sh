@@ -27,12 +27,21 @@ echo "[$$] acquired lock"
 # short hostname for logging
 MACHINE="$(hostname -s)"
 
-LOG_DIR="/mnt/host/ready/logs"
-PROCESSING_DIR="/home/tom/processing"
-STAGING_DIR="/mnt/host/staging"
-QUARANTINE_DIR="/home/tom/quarantine"
-REGISTRY_DIR="/mnt/host/ready/registry"
-DOWNLOAD_DIR="/home/tom/Downloads/complete"
+# LOG_DIR="/mnt/host/ready/logs"
+# PROCESSING_DIR="/home/tom/processing"
+# STAGING_DIR="/mnt/host/staging"
+# QUARANTINE_DIR="/home/tom/quarantine"
+# REGISTRY_DIR="/mnt/host/ready/registry"
+# DOWNLOAD_DIR="/home/tom/Downloads/complete"
+
+# Environment-overridable paths with production defaults
+# Tests or alternate environments can override via exported variables
+LOG_DIR="${LOG_DIR:-/mnt/host/ready/logs}"
+DOWNLOAD_DIR="${DOWNLOAD_DIR:-/home/tom/Downloads/complete}"
+PROCESSING_DIR="${PROCESSING_DIR:-/home/tom/processing}"
+STAGING_DIR="${STAGING_DIR:-/mnt/host/staging}"
+QUARANTINE_DIR="${QUARANTINE_DIR:-/home/tom/quarantine}"
+REGISTRY_DIR="${REGISTRY_DIR:-/mnt/host/ready/registry}"
 
 mkdir -p "$LOG_DIR" "$PROCESSING_DIR" "$QUARANTINE_DIR" "$REGISTRY_DIR"
 
