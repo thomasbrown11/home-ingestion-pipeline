@@ -24,25 +24,24 @@ echo "[$$] acquired lock"
 
 # set static environment variables (infra layer)
 
-#short hostname for logging
+# short hostname for logging
 MACHINE="$(hostname -s)"
 
-# LOG_DIR="/home/tom/logs"
 LOG_DIR="/mnt/host/ready/logs"
-
-mkdir -p "$LOG_DIR"
-
-#bootstrap to prevent early failed reading of LOG_FILE
-LOG_FILE="/tmp/ingestion-bootstrap.log"
-
-DOWNLOAD_DIR="/home/tom/Downloads/complete"
 PROCESSING_DIR="/home/tom/processing"
 STAGING_DIR="/mnt/host/staging"
 QUARANTINE_DIR="/home/tom/quarantine"
 REGISTRY_DIR="/mnt/host/ready/registry"
+DOWNLOAD_DIR="/home/tom/Downloads/complete"
 
-# exclude staging direcotry.. this is an infra contract boundary (staging is virtiofs managed by the host)
-mkdir -p "$PROCESSING_DIR" "$QUARANTINE_DIR" "$REGISTRY_DIR" 
+mkdir -p "$LOG_DIR" "$PROCESSING_DIR" "$QUARANTINE_DIR" "$REGISTRY_DIR"
+
+# =========================
+# LOGGING
+# =========================
+
+# bootstrap to prevent early failed reading of LOG_FILE
+LOG_FILE="/tmp/bootstrap.log"
 
 # =========================
 # LOGGING
@@ -200,68 +199,86 @@ EXPORT_DONE="$REGISTRY_DIR/${TRANS_ID}.export.done"
 
 # dynamic, per-job state variables (execution layer)
 
-# working pointer (mutable)
-SRC="$ORIG_SRC"
+# removed SRC="$ORIG_SRC" since FILE_PATH should be actual truth
 
 PROC_PATH="$PROCESSING_DIR/$BASENAME"
 STAGE_PATH="$STAGING_DIR/$BASENAME"
 QUAR_PATH="$QUARANTINE_DIR/$BASENAME"
 
-# for handoff to next computer node 
+# for handoff to next computer node
 MANIFEST_PATH="$REGISTRY_DIR/${TRANS_ID}.json"
-# for reses ume state tracking on retries 
+
+# for resume state tracking on retries 
 STATE_FILE="$REGISTRY_DIR/${TRANS_ID}.state"
 
 # =========================
-# STATE HELPERS 
+# CONTEXT HYDRATION (Retry context handler)
 # =========================
 
-set_state() {
-    echo "$1" > "$STATE_FILE"
-}
+hydrate_context() {
 
-get_state() {
-    [[ -f "$STATE_FILE" ]] && cat "$STATE_FILE" || echo "none"
-}
-
-# =========================
-# retry filepath rehydration
-# =========================
-resolve_file_path() {
-    if [[ -n "${FILE_PATH:-}" ]]; then
+    # if filepath and file at filepath already exist return success (no change)
+    if [[ -n "${FILE_PATH:-}" && -e "${FILE_PATH}" ]]; then
         return 0
     fi
 
+    # if file is in processing directory update FILE_PATH accordingly
     if [[ -e "$PROC_PATH" ]]; then
         FILE_PATH="$PROC_PATH"
         return 0
     fi
 
-    fail "FILE_PATH is not set and cannot be resolved from PROC_PATH"
+    # porst-export/staging fallback
+    if [[ -e "$STAGE_PATH" ]]; then
+        FILE_PATH="$STAGE_PATH"
+        return 0
+    fi
+
+    # fallback ONLY if pipeline never reached ingest completion
+    if [[ -e "$ORIG_SRC" ]]; then
+        FILE_PATH="$ORIG_SRC"
+        return 0
+    fi
+
+    fail "context hydration failed: cannot resolve FILE_PATH"
+}
+
+# =========================
+# STATE HELPERS 
+# =========================
+
+# replace state file contents with current state
+set_state() {
+    echo "$1" > "$STATE_FILE"
+}
+
+# read current state from registry file or set to none if non-existent. 
+get_state() {
+    [[ -f "$STATE_FILE" ]] && cat "$STATE_FILE" || echo "none"
 }
 
 # =========================
 # INPUT VALIDATION
 # =========================
 
-# validate input is present
+# validate $2 arg input (not measuring path)
 [[ -n "${ORIG_SRC:-}" ]] || fail "missing source path"
 
-# enforce existence only on first run
+# safety boundary: verify $2 originated in approved ingestion location
+case "$ORIG_SRC" in
+    "$DOWNLOAD_DIR"/*) ;;
+    *) fail "must originate from download directory" ;;
+esac
+
+# on first run only: check if file actually exists at file specified in $2
 case "$(get_state)" in
     none|"")
         [[ -e "$ORIG_SRC" ]] || fail "input does not exist"
         ;;
 esac
 
-# always enforce safety boundary (critical invariant)
-case "$ORIG_SRC" in
-    "$DOWNLOAD_DIR"/*) ;;
-    *) fail "must originate from download directory" ;;
-esac
-
 # =========================
-# STAGE FUNCTIONS (Dispatch methods)
+# STAGE FUNCTIONS (Dispatch Methods)
 # =========================
 
 run_ingest() {
@@ -275,21 +292,17 @@ run_ingest() {
 
     log "starting ingestion"
 
-     # If already done, rehydrate state safely and exit cleanly
+     # If already done, rehydrate state safely and exit cleanly (likley corrupt state if running)
     if [[ -f "$INGEST_DONE" ]]; then
 
-        # must exist or pipeline state is corrupted
-        [[ -e "$PROC_PATH" ]] || fail "ingest marked done but PROC_PATH missing: $PROC_PATH"
+        # redundant hydration for resilience only.. could be removed
+        hydrate_context
 
-       # normalize pointer deterministically (single invariant)
-        if [[ -d "$PROC_PATH" || -f "$PROC_PATH" ]]; then
-            FILE_PATH="$PROC_PATH"
-        else
-            fail "invalid ingestion state: PROC_PATH is neither file nor directory"
-        fi
+        [[ -e "$FILE_PATH" ]] || fail "ingest marked done but file missing"
 
         log "ingestion already complete, skipping"
         return
+
     fi
 
     #avoid double move
@@ -542,6 +555,9 @@ run_export() {
 # =========================
 
 STATE="$(get_state)"
+
+# set FILE_PATH properly at start to handle retries 
+hydrate_context 
 
 while true; do
     case "$STATE" in
