@@ -225,6 +225,22 @@ get_state() {
 }
 
 # =========================
+# retry filepath rehydration
+# =========================
+resolve_file_path() {
+    if [[ -n "${FILE_PATH:-}" ]]; then
+        return 0
+    fi
+
+    if [[ -e "$PROC_PATH" ]]; then
+        FILE_PATH="$PROC_PATH"
+        return 0
+    fi
+
+    fail "FILE_PATH is not set and cannot be resolved from PROC_PATH"
+}
+
+# =========================
 # INPUT VALIDATION
 # =========================
 
@@ -420,6 +436,10 @@ run_validate() {
 }
 
 run_manifest() {
+
+    #filepath rehydration for retries
+    resolve_file_path
+
     ACTION="manifest"
     STATUS="running"
     STAGE="metadata"
@@ -488,6 +508,10 @@ run_manifest() {
 }
 
 run_export() {
+
+    #filepath rehydration for retries
+    resolve_file_path
+
     ACTION="stage"
     STATUS="running"
     STAGE="export"
@@ -575,3 +599,406 @@ while true; do
 done
 
 exit 0
+
+###### SUPPOSEDLY FIxED
+
+#!/bin/bash
+set -euo pipefail
+
+# =========================
+# SINGLE INSTANCE LOCK
+# =========================
+
+LOCKFILE="/var/lock/ingestion-vm.lock"
+
+exec 9>"$LOCKFILE"
+echo "[$$] waiting for lock on $LOCKFILE..."
+flock 9
+echo "[$$] acquired lock"
+
+# =========================
+# CONFIG
+# =========================
+
+MACHINE="$(hostname -s)"
+
+LOG_DIR="/mnt/host/ready/logs"
+mkdir -p "$LOG_DIR"
+
+LOG_FILE="/tmp/ingestion-bootstrap.log"
+
+DOWNLOAD_DIR="/home/tom/Downloads/complete"
+PROCESSING_DIR="/home/tom/processing"
+STAGING_DIR="/mnt/host/staging"
+QUARANTINE_DIR="/home/tom/quarantine"
+REGISTRY_DIR="/mnt/host/ready/registry"
+
+mkdir -p "$LOG_DIR" "$PROCESSING_DIR" "$QUARANTINE_DIR" "$REGISTRY_DIR"
+
+# =========================
+# LOGGING
+# =========================
+
+log() {
+    local msg
+    msg=$(jq -Rs . <<< "${1:-}")
+
+    printf '{"ts":"%s","tx":"%s","name":"%s","machine":"%s","action":"%s","status":"%s","stage":"%s","src":"%s","dest":"%s","msg":%s}\n' \
+        "$(date -Iseconds)" \
+        "${TRANS_ID:-none}" \
+        "${BUNDLE_NAME:-none}" \
+        "$MACHINE" \
+        "${ACTION:-none}" \
+        "${STATUS:-none}" \
+        "${STAGE:-none}" \
+        "${SRC:-}" \
+        "${DEST:-}" \
+        "$msg" >> "$LOG_FILE"
+}
+
+fail() {
+    log "$1"
+    echo "FATAL: $1" >&2
+    exit 1
+}
+
+trap '
+ACTION=${ACTION:-fatal}
+STATUS="error"
+SRC=${SRC:-${FILE_PATH:-unknown}}
+DEST=${DEST:-unknown}
+log "unexpected failure"
+exit 1
+' ERR
+
+# =========================
+# DEPENDENCIES
+# =========================
+
+for cmd in clamdscan ffprobe ffmpeg sha256sum jq uuidgen find flock pgrep awk; do
+    command -v "$cmd" >/dev/null 2>&1 || fail "$cmd not installed"
+done
+
+pgrep -x clamd >/dev/null 2>&1 || fail "clamd daemon not running"
+
+# =========================
+# MEDIA FILTERS
+# =========================
+
+is_core_media_file() {
+    case "$1" in
+        *.mkv|*.mp4|*.avi|*.mov|*.m4v|*.ts|*.webm) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_aux_file() {
+    case "$1" in
+        *.srt|*.ass|*.vtt) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# =========================
+# SAFE MOVE
+# =========================
+
+safe_move() {
+    local src="$1"
+    local dest="$2"
+    [[ -e "$dest" ]] && fail "destination exists: $dest"
+    mv "$src" "$dest"
+}
+
+# =========================
+# CONTEXT HYDRATION (FIXED CORE)
+# =========================
+
+hydrate_context() {
+
+    # already valid
+    if [[ -n "${FILE_PATH:-}" && -e "${FILE_PATH}" ]]; then
+        return 0
+    fi
+
+    # primary recovery: processing
+    if [[ -d "$PROC_PATH" ]]; then
+        FILE_PATH="$PROC_PATH"
+        return 0
+    fi
+
+    # staging recovery (retry mid-export failures)
+    if [[ -e "$STAGE_PATH" ]]; then
+        FILE_PATH="$STAGE_PATH"
+        return 0
+    fi
+
+    # ingest reconstruction fallback
+    if [[ -f "$INGEST_DONE" && -e "$PROCESSING_DIR/$BASENAME" ]]; then
+        FILE_PATH="$PROCESSING_DIR/$BASENAME"
+        return 0
+    fi
+
+    fail "context hydration failed: cannot resolve FILE_PATH"
+}
+
+# =========================
+# ENTRY CONTRACT
+# =========================
+
+[[ $# -eq 3 ]] || fail "usage: $0 <name> <path> <infohash>"
+
+TRANS_ID="$3"
+BUNDLE_NAME="$1"
+ORIG_SRC="$2"
+BASENAME=$(basename "$ORIG_SRC")
+
+LOG_FILE="$LOG_DIR/${TRANS_ID}.log"
+
+# =========================
+# STATE
+# =========================
+
+INGEST_DONE="$REGISTRY_DIR/${TRANS_ID}.ingest.done"
+SCAN_DONE="$REGISTRY_DIR/${TRANS_ID}.scan.done"
+VALIDATE_DONE="$REGISTRY_DIR/${TRANS_ID}.validate.done"
+MANIFEST_DONE="$REGISTRY_DIR/${TRANS_ID}.manifest.done"
+EXPORT_DONE="$REGISTRY_DIR/${TRANS_ID}.export.done"
+
+STATE_FILE="$REGISTRY_DIR/${TRANS_ID}.state"
+
+set_state() { echo "$1" > "$STATE_FILE"; }
+get_state() { [[ -f "$STATE_FILE" ]] && cat "$STATE_FILE" || echo "none"; }
+
+# =========================
+# INPUT VALIDATION
+# =========================
+
+[[ -n "${ORIG_SRC:-}" ]] || fail "missing source path"
+
+case "$(get_state)" in
+    none|"")
+        [[ -e "$ORIG_SRC" ]] || fail "input does not exist"
+        ;;
+esac
+
+case "$ORIG_SRC" in
+    "$DOWNLOAD_DIR"/*) ;;
+    *) fail "must originate from download directory" ;;
+esac
+
+# =========================
+# STATE VARIABLES
+# =========================
+
+SRC="$ORIG_SRC"
+PROC_PATH="$PROCESSING_DIR/$BASENAME"
+STAGE_PATH="$STAGING_DIR/$BASENAME"
+QUAR_PATH="$QUARANTINE_DIR/$BASENAME"
+MANIFEST_PATH="$REGISTRY_DIR/${TRANS_ID}.json"
+
+# =========================
+# INGEST
+# =========================
+
+run_ingest() {
+
+    ACTION="ingest"
+    STATUS="running"
+    STAGE="ingest"
+
+    log "starting ingestion"
+
+    if [[ -f "$INGEST_DONE" ]]; then
+        FILE_PATH="$PROC_PATH"
+        log "ingestion already complete"
+        return
+    fi
+
+    safe_move "$ORIG_SRC" "$PROC_PATH"
+
+    if [[ -f "$PROC_PATH" ]]; then
+        TMP_DIR="${PROC_PATH}.dir"
+        mkdir -p "$TMP_DIR"
+        mv "$PROC_PATH" "$TMP_DIR/"
+        PROC_PATH="$TMP_DIR"
+    fi
+
+    FILE_PATH="$PROC_PATH"
+
+    touch "$INGEST_DONE"
+    STATUS="success"
+    log "ingestion complete"
+}
+
+# =========================
+# SCAN
+# =========================
+
+run_scan() {
+    hydrate_context
+
+    ACTION="scan"
+    STATUS="running"
+    STAGE="security"
+
+    [[ -f "$SCAN_DONE" ]] && return
+
+    if ! clamdscan --multiscan --recursive --fdpass "$FILE_PATH"; then
+        safe_move "$FILE_PATH" "$QUAR_PATH"
+        fail "malware detected"
+    fi
+
+    touch "$SCAN_DONE"
+    STATUS="passed"
+    log "scan complete"
+}
+
+# =========================
+# VALIDATE
+# =========================
+
+run_validate() {
+    hydrate_context
+
+    ACTION="validate"
+    STATUS="running"
+    STAGE="validation"
+
+    [[ -f "$VALIDATE_DONE" ]] && return
+
+    mapfile -d '' -t FILES < <(find "$FILE_PATH" -type f -print0)
+
+    for f in "${FILES[@]}"; do
+        if is_core_media_file "$f"; then
+            ffprobe -v error "$f" >/dev/null
+            ffmpeg -v error -i "$f" -f null - >/dev/null
+        fi
+    done
+
+    touch "$VALIDATE_DONE"
+    STATUS="passed"
+    log "validation complete"
+}
+
+# =========================
+# MANIFEST
+# =========================
+
+run_manifest() {
+    hydrate_context
+
+    ACTION="manifest"
+    STATUS="running"
+    STAGE="metadata"
+
+    [[ -f "$MANIFEST_DONE" ]] && return
+
+    mapfile -d '' -t FILES < <(find "$FILE_PATH" -type f -print0)
+
+    FILES_JSON="[]"
+
+    for f in "${FILES[@]}"; do
+        if is_core_media_file "$f"; then
+            HASH=$(sha256sum "$f" | awk '{print $1}')
+            REL_PATH="${f#$FILE_PATH/}"
+
+            FILES_JSON=$(jq \
+                --arg name "$REL_PATH" \
+                --arg hash "$HASH" \
+                '. += [{"name":$name,"hash":$hash}]' <<< "$FILES_JSON")
+        fi
+    done
+
+    TMP="${MANIFEST_PATH}.tmp"
+
+    jq -n \
+        --arg job "$TRANS_ID" \
+        --arg name "${BUNDLE_NAME:-unknown}" \
+        --arg src "$ORIG_SRC" \
+        --argjson files "$FILES_JSON" \
+        '{job_id:$job,name:$name,source:$src,type:null,files:$files}' > "$TMP"
+
+    mv "$TMP" "$MANIFEST_PATH"
+
+    touch "$MANIFEST_DONE"
+    STATUS="success"
+    log "manifest complete"
+}
+
+# =========================
+# EXPORT
+# =========================
+
+run_export() {
+    hydrate_context
+
+    ACTION="stage"
+    STATUS="running"
+    STAGE="export"
+
+    [[ -f "$EXPORT_DONE" ]] && return
+
+    [[ -d "$STAGING_DIR" ]] || fail "staging mount missing"
+
+    safe_move "$FILE_PATH" "$STAGE_PATH"
+
+    touch "$EXPORT_DONE"
+    STATUS="success"
+    log "export complete"
+}
+
+# =========================
+# DISPATCH
+# =========================
+
+STATE="$(get_state)"
+
+while true; do
+    case "$STATE" in
+
+        none|ingest)
+            set_state "ingest"
+            run_ingest
+            STATE="scan"
+            set_state "$STATE"
+            ;;
+
+        scan)
+            set_state "scan"
+            run_scan
+            STATE="validate"
+            set_state "$STATE"
+            ;;
+
+        validate)
+            set_state "validate"
+            run_validate
+            STATE="manifest"
+            set_state "$STATE"
+            ;;
+
+        manifest)
+            set_state "manifest"
+            run_manifest
+            STATE="stage"
+            set_state "$STATE"
+            ;;
+
+        stage)
+            set_state "stage"
+            run_export
+            STATE="done"
+            set_state "$STATE"
+            ;;
+
+        done)
+            log "pipeline complete"
+            exit 0
+            ;;
+
+        *)
+            fail "unknown state: $STATE"
+            ;;
+    esac
+done
