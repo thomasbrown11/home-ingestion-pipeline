@@ -30,7 +30,12 @@ MACHINE="$(hostname -s)"
 # LOG_DIR="/home/tom/logs"
 LOG_DIR="/mnt/host/ready/logs"
 
-DOWNLOAD_DIR="/home/tom/downloads/complete"
+mkdir -p "$LOG_DIR"
+
+#bootstrap to prevent early failed reading of LOG_FILE
+LOG_FILE="/tmp/ingestion-bootstrap.log"
+
+DOWNLOAD_DIR="/home/tom/Downloads/complete"
 PROCESSING_DIR="/home/tom/processing"
 STAGING_DIR="/mnt/host/staging"
 QUARANTINE_DIR="/home/tom/quarantine"
@@ -223,11 +228,21 @@ get_state() {
 # INPUT VALIDATION
 # =========================
 
-[[ -e "$SRC" ]] || fail "input does not exist"
-[[ -f "$SRC" || -d "$SRC" ]] || fail "must be file or directory"
+# validate input is present
+[[ -n "${ORIG_SRC:-}" ]] || fail "missing source path"
 
-# safety check/ preserve data integrity
-[[ "$ORIG_SRC" == "$DOWNLOAD_DIR"* ]] || fail "must originate from download directory"
+# enforce existence only on first run
+case "$(get_state)" in
+    none|"")
+        [[ -e "$ORIG_SRC" ]] || fail "input does not exist"
+        ;;
+esac
+
+# always enforce safety boundary (critical invariant)
+case "$ORIG_SRC" in
+    "$DOWNLOAD_DIR"/*) ;;
+    *) fail "must originate from download directory" ;;
+esac
 
 # =========================
 # STAGE FUNCTIONS (Dispatch methods)
@@ -489,9 +504,9 @@ run_export() {
     log "export intent: moving to staging"
 
     # hard boundary check: ensure mount / destination exists
-    if [[ ! -d "$STAGE_PATH" ]]; then
+    if [[ ! -d "$STAGE_DIR" ]]; then
         STATUS="failed"
-        log "staging destination unavailable (mount missing or not mounted): $STAGE_PATH"
+        log "staging destination unavailable (mount missing or not mounted): $STAGE_DIR"
         exit 1
     fi
 
