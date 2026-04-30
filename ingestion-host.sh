@@ -49,20 +49,20 @@ flock 9
 MACHINE="$(hostname -s)"
 
 # vm side manifest location for hash correlation/ transID retrieval 
-INCOMING="/mnt/vm-share/incoming/ready"
+INCOMING="${INCOMING:-/mnt/vm-share/incoming/ready}"
 REGISTRY_DIR="$INCOMING/registry"
 
 # export directory for NAS consumption 
-EXPORT_DIR="/mnt/vm-share/export"
+EXPORT_DIR="${EXPORT_DIR:-/mnt/vm-share/export}"
 EXPORT_MOVIES="$EXPORT_DIR/movies"
 EXPORT_SHOWS="$EXPORT_DIR/shows"
 EXPORT_MANIFESTS="$EXPORT_DIR/manifests"
 
 # consumed manifests on completed jobs
-PROCESSED_DIR="$REGISTRY_DIR/processed"
+PROCESSED_DIR="${PROCESSED_DIR:-$REGISTRY_DIR/processed}"
 
 # host side pipe log 
-LOG_FILE="/var/log/promotion.log"
+LOG_FILE="${LOG_FILE:-/var/log/promotion.log}"
 
 mkdir -p "$EXPORT_MOVIES" "$EXPORT_SHOWS" "$EXPORT_MANIFESTS" "$PROCESSED_DIR"
 

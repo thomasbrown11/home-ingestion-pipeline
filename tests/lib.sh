@@ -3,13 +3,19 @@
 BASE="/tmp/pipeline-test"
 FIXTURES="$(dirname "$0")/fixtures"
 
-# test-controlled override environment (THIS is the key improvement)
+# vm test-controlled override environment
 export LOG_DIR="$BASE/logs"
 export DOWNLOAD_DIR="$BASE/downloads"
 export PROCESSING_DIR="$BASE/processing"
 export STAGING_DIR="$BASE/staging"
 export QUARANTINE_DIR="$BASE/quarantine"
 export REGISTRY_DIR="$BASE/registry"
+
+# host test-controlled override environment
+export INCOMING="$BASE/incoming"
+export EXPORT_DIR="$BASE/export"
+export REGISTRY_DIR="$BASE/registry"
+export LOG_FILE="$BASE/logs/host.log"
 
 # reset test state between tests
 setup_env() {
@@ -19,7 +25,10 @@ setup_env() {
         "$PROCESSING_DIR" \
         "$STAGING_DIR" \
         "$REGISTRY_DIR" \
-        "$LOG_DIR"
+        "$LOG_DIR" \
+        "$INCOMING" \
+        "$EXPORT_DIR"
+
 }
 
 # wrapper for vm invocation for test readability
