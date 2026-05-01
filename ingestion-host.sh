@@ -37,9 +37,11 @@ done
 # LOCK (one bundle at a time)
 # =========================
 
-LOCKFILE="/var/lock/ingestion-host.lock"
+LOCKFILE="${LOCKFILE:-/var/lock/ingestion-host.lock}"
 exec 9>>"$LOCKFILE"
+echo "[$$] waiting for lock on $LOCKFILE..."
 flock 9
+echo "[$$] acquired lock"
 
 # =========================
 # CONFIG
@@ -50,7 +52,7 @@ MACHINE="$(hostname -s)"
 
 # vm side manifest location for hash correlation/ transID retrieval 
 INCOMING="${INCOMING:-/mnt/vm-share/incoming/ready}"
-REGISTRY_DIR="$INCOMING/registry"
+REGISTRY_DIR="${REGISTRY_DIR:-$INCOMING/registry}"
 
 # export directory for NAS consumption 
 EXPORT_DIR="${EXPORT_DIR:-/mnt/vm-share/export}"

@@ -11,9 +11,9 @@ set -euo pipefail
 # next job will wait until the current script instance finishes
 # single worker low throughput
 
-LOCKFILE="/var/lock/ingestion-vm.lock"
+LOCKFILE="${LOCKFILE:-/var/lock/ingestion-vm.lock}"
 
-exec 9>"$LOCKFILE"
+exec 9>>"$LOCKFILE"
 echo "[$$] waiting for lock on $LOCKFILE..."
 flock 9
 echo "[$$] acquired lock"
@@ -43,10 +43,15 @@ STAGING_DIR="${STAGING_DIR:-/mnt/host/staging}"
 QUARANTINE_DIR="${QUARANTINE_DIR:-/home/tom/quarantine}"
 REGISTRY_DIR="${REGISTRY_DIR:-/mnt/host/ready/registry}"
 
+#testing only toggle
+TEST_MODE="${TEST_MODE:-0}"
+SKIP_CLAMAV="$TEST_MODE"
+SKIP_HEAVY_DEPS="$TEST_MODE"
+
 mkdir -p "$LOG_DIR" "$PROCESSING_DIR" "$QUARANTINE_DIR" "$REGISTRY_DIR"
 
 # =========================
-# LOGGING
+# LOG BOOTSTRAP
 # =========================
 
 # bootstrap to prevent early failed reading of LOG_FILE
@@ -103,16 +108,31 @@ exit 1
 # =========================
 
 # search $PATH for required commands, throw away output. fail gracefully if missing
+
 # for cmd in clamdscan ffprobe ffmpeg sha256sum jq uuidgen find; do
 #     command -v "$cmd" >/dev/null 2>&1 || fail "$cmd not installed"
 # done
 
-for cmd in clamdscan ffprobe ffmpeg sha256sum jq uuidgen find flock pgrep awk; do
-    command -v "$cmd" >/dev/null 2>&1 || fail "$cmd not installed"
-done
+# for cmd in clamdscan ffprobe ffmpeg sha256sum jq uuidgen find flock pgrep awk; do
+#     command -v "$cmd" >/dev/null 2>&1 || fail "$cmd not installed"
+# done
 
-# check if clamd daemon is running. Fail if not. Strict mode policy (non root context)
-pgrep -x clamd >/dev/null 2>&1 || fail "clamd daemon not running"
+# # check if clamd daemon is running. Fail if not. Strict mode policy (non root context)
+# pgrep -x clamd >/dev/null 2>&1 || fail "clamd daemon not running"
+
+if [[ "$SKIP_HEAVY_DEPS" -eq 0 ]]; then
+    for cmd in clamdscan ffprobe ffmpeg sha256sum jq uuidgen find flock pgrep awk; do
+        command -v "$cmd" >/dev/null 2>&1 || fail "$cmd not installed"
+    done
+
+    # check if clamd daemon is running. Fail if not. Strict mode policy (non root context)
+    pgrep -x clamd >/dev/null 2>&1 || fail "clamd daemon not running"
+else
+    # still validate lightweight/core deps
+    for cmd in sha256sum jq find flock awk; do
+        command -v "$cmd" >/dev/null 2>&1 || fail "$cmd not installed"
+    done
+fi
 
 # =========================
 # STRICT MEDIA FILTER
@@ -361,13 +381,27 @@ run_scan() {
     log "clamav scan started"
 
     # parallel process clamdscan, quarantine on fail (malware detection/failed scan status)
-    if ! clamdscan --multiscan --recursive --fdpass "$FILE_PATH"; then
-        STATUS="failed"
-        DEST="$QUAR_PATH"
+    # if ! clamdscan --multiscan --recursive --fdpass "$FILE_PATH"; then
+    #     STATUS="failed"
+    #     DEST="$QUAR_PATH"
 
-        safe_move "$FILE_PATH" "$QUAR_PATH" || fail "quarantine move failed"
-        log "malware detected. moving to quarantine"
-        exit 1
+    #     safe_move "$FILE_PATH" "$QUAR_PATH" || fail "quarantine move failed"
+    #     log "malware detected. moving to quarantine"
+    #     exit 1
+    # fi
+
+    # parallel process clamdscan, quarantine on fail (malware detection/failed scan status)
+    if [[ "$SKIP_CLAMAV" -eq 1 ]]; then
+        log "clamav skipped (test mode)"
+    else
+        if ! clamdscan --multiscan --recursive --fdpass "$FILE_PATH"; then
+            STATUS="failed"
+            DEST="$QUAR_PATH"
+            
+            safe_move "$FILE_PATH" "$QUAR_PATH" || fail "quarantine move failed"
+            log "malware detected. moving to quarantine"
+            exit 1
+        fi
     fi
 
     STATUS="passed"
@@ -405,6 +439,12 @@ run_validate() {
             DEST=""
 
             log "validating file"
+
+            # in test mode, skip heavy dependencies for faster test execution. In production, run full validation.
+            if [[ "$SKIP_HEAVY_DEPS" -eq 1 ]]; then
+                log "validation skipped (test mode)"
+                continue
+            fi
 
             # silence output/errors. test exit status only
             if ! ffprobe -v error "$f" >/dev/null 2>&1; then
@@ -544,9 +584,9 @@ run_export() {
     log "export intent: moving to staging"
 
     # hard boundary check: ensure mount / destination exists
-    if [[ ! -d "$STAGE_DIR" ]]; then
+    if [[ ! -d "$STAGING_DIR" ]]; then
         STATUS="failed"
-        log "staging destination unavailable (mount missing or not mounted): $STAGE_DIR"
+        log "staging destination unavailable (mount missing or not mounted): $STAGING_DIR"
         exit 1
     fi
 

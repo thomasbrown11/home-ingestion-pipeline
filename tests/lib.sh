@@ -3,7 +3,8 @@
 BASE="/tmp/pipeline-test"
 FIXTURES="$(dirname "$0")/fixtures"
 
-# vm test-controlled override environment
+# test-controlled override environment
+export LOCKFILE="$BASE/test.lock"
 export LOG_DIR="$BASE/logs"
 export DOWNLOAD_DIR="$BASE/downloads"
 export PROCESSING_DIR="$BASE/processing"
@@ -16,10 +17,17 @@ export INCOMING="$BASE/incoming"
 export EXPORT_DIR="$BASE/export"
 export LOG_FILE="$BASE/logs/host.log"
 
+#test toggle for heavy dependencies and clamav
+export TEST_MODE=1
+
 # reset test state between tests
 setup_env() {
+
+    #reset test environment
     rm -rf "$BASE"
-     mkdir -p \
+
+    # create directories for test environment
+    mkdir -p \
         "$DOWNLOAD_DIR" \
         "$PROCESSING_DIR" \
         "$STAGING_DIR" \
@@ -27,9 +35,13 @@ setup_env() {
         "$QUARANTINE_DIR" \
         "$LOG_DIR" \
         "$INCOMING" \
-        "$EXPORT_DIR" \
-        "$LOG_FILE"
+        "$INCOMING/movies" \
+        "$INCOMING/shows" \
+        "$EXPORT_DIR" 
 
+    # create files for test environment
+    touch "$LOG_FILE" 
+    touch "$LOCKFILE"
 }
 
 # wrapper for vm invocation for test readability
