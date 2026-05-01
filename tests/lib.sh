@@ -1,4 +1,7 @@
-#!/bin/bash
+# #!/bin/bash
+#!/usr/bin/env bash
+
+export PATH="/users/brownt/homebrew/bin:$PATH"
 
 # =========================
 # PROJECT ROOT RESOLUTION
@@ -7,7 +10,7 @@
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 BASE="/tmp/pipeline-test"
-FIXTURES="$(dirname "$0")/fixtures"
+FIXTURES="$ROOT/tests/fixtures"
 
 # test-controlled override environment
 export LOCKFILE="$BASE/test.lock"
@@ -62,7 +65,7 @@ run_vm_script() {
     local path="$2"
     local id="$3"
 
-    ./ingestion-vm-v3.sh "$name" "$path" "$id"
+    "$ROOT/ingestion-vm-v3.sh" "$name" "$path" "$id"
 }
 
 # =========================
@@ -77,7 +80,7 @@ run_host_script() {
         return 1
     }
 
-    ./ingestion-host.sh "$path"
+    "$ROOT/ingestion-host.sh" "$path"
 }
 
 # =========================

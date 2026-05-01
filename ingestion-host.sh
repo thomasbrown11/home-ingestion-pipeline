@@ -1,6 +1,7 @@
 #SAVE THIS TO /usr/local/bin/ingestion-host.sh
 
-#!/bin/bash
+# #!/bin/bash
+#!/usr/bin/env bash
 
 # error logs in early stages before transID is defined will make new log files in same log directory for easy debug
 

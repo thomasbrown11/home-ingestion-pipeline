@@ -1,4 +1,5 @@
-#!/bin/bash
+
+#!/usr/bin/env bash
 set -euo pipefail
 
 # =========================
@@ -231,7 +232,7 @@ EXPORT_DONE="$REGISTRY_DIR/${TRANS_ID}.export.done"
 # removed SRC="$ORIG_SRC" since FILE_PATH should be actual truth
 
 PROC_PATH="$PROCESSING_DIR/$BASENAME"
-STAGE_PATH="$STAGING_DIR/$BASENAME"
+STAGE_PATH="$STAGING_DIR/${BASENAME}.dir"
 QUAR_PATH="$QUARANTINE_DIR/$BASENAME"
 
 # for handoff to next computer node

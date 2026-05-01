@@ -1,6 +1,8 @@
 #SAVE THIS TO /usr/local/bin/ingestion-host-watch.sh
 
-#!/bin/bash
+# #!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 INCOMING="/mnt/vm-share/incoming/ready"
 
