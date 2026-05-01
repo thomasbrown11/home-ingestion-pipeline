@@ -13,7 +13,7 @@ setup_env
 cp "$FIXTURES/good.mkv" "$DOWNLOAD_DIR/test.mkv"
 
 # run vm to create bundle in staging and manifest in registry
-run_vm "test" "$DOWNLOAD_DIR/test.mkv" "test123"
+run_vm_script "test" "$DOWNLOAD_DIR/test.mkv" "test123"
 
 # expected output of vm is bundle in staging and manifest in registry
 assert_exists "$STAGING_DIR/test.mkv"

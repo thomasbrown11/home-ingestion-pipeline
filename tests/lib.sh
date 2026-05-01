@@ -14,7 +14,6 @@ export REGISTRY_DIR="$BASE/registry"
 # host test-controlled override environment
 export INCOMING="$BASE/incoming"
 export EXPORT_DIR="$BASE/export"
-export REGISTRY_DIR="$BASE/registry"
 export LOG_FILE="$BASE/logs/host.log"
 
 # reset test state between tests
@@ -25,14 +24,16 @@ setup_env() {
         "$PROCESSING_DIR" \
         "$STAGING_DIR" \
         "$REGISTRY_DIR" \
+        "$QUARANTINE_DIR" \
         "$LOG_DIR" \
         "$INCOMING" \
-        "$EXPORT_DIR"
+        "$EXPORT_DIR" \
+        "$LOG_FILE"
 
 }
 
 # wrapper for vm invocation for test readability
-run_vm() {
+run_vm_script() {
     local name="$1"
     local path="$2"
     local id="$3"
@@ -41,7 +42,7 @@ run_vm() {
 }
 
 # wrapper for host invocation for test readability
-run_host() {
+run_host_script() {
     local path="$1"
 
     [[ -d "$path" ]] || {
