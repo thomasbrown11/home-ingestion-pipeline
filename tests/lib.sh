@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# =========================
+# PROJECT ROOT RESOLUTION
+# =========================
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 BASE="/tmp/pipeline-test"
 FIXTURES="$(dirname "$0")/fixtures"
 
@@ -20,7 +26,10 @@ export LOG_FILE="$BASE/logs/host.log"
 #test toggle for heavy dependencies and clamav
 export TEST_MODE=1
 
-# reset test state between tests
+# =========================
+# RESET TEST STATE
+# =========================
+
 setup_env() {
 
     #reset test environment
@@ -44,7 +53,10 @@ setup_env() {
     touch "$LOCKFILE"
 }
 
-# wrapper for vm invocation for test readability
+# =========================
+# VM RUNNER
+# =========================
+
 run_vm_script() {
     local name="$1"
     local path="$2"
@@ -53,7 +65,10 @@ run_vm_script() {
     ./ingestion-vm-v3.sh "$name" "$path" "$id"
 }
 
-# wrapper for host invocation for test readability
+# =========================
+# HOST RUNNER (optional future use)
+# =========================
+
 run_host_script() {
     local path="$1"
 
@@ -65,7 +80,10 @@ run_host_script() {
     ./ingestion-host.sh "$path"
 }
 
-# assert file existence for test validation
+# =========================
+# ASSERT HELPERS
+# =========================
+
 assert_exists() {
     if [[ ! -e "$1" ]]; then
         echo "FAIL: expected file missing: $1"
